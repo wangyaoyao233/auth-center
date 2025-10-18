@@ -1,0 +1,10 @@
+/target
+
+.env
+
+# macOS
+#################
+.DS_Store
+._*
+.AppleDouble
+.Trashes

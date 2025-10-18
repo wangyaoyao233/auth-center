@@ -1,0 +1,17 @@
+http://127.0.0.1:8080/hello
+
+###
+
+GET http://127.0.0.1:8080/hash
+
+
+###
+
+POST http://127.0.0.1:8080/login
+content-type: application/json
+
+{
+  "username": "testuser",
+  "password": "password123"
+}
+

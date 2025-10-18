@@ -1,0 +1,30 @@
+version: '3.8' # docker-compose 文件的版本
+
+services:
+  # 这是你的 PostgreSQL 数据库服务
+  db:
+    image: postgres:16 # 使用官方的 PostgreSQL 16 镜像
+    container_name: auth-db-dev # 给你的容器起个名字
+    restart: always # 如果崩溃了，自动重启
+
+    # 环境变量：数据库的用户名、密码和数据库名
+    # !! 重点 !!: 确保这些值与你 .env 文件中的 DATABASE_URL 匹配！
+
+    environment:
+      POSTGRES_USER: dev_pg_user
+      POSTGRES_PASSWORD: dev_pg_user_password
+      POSTGRES_DB: dev_db
+
+    # 端口映射：将你本机的 5432 端口映射到容器的 5432 端口
+    ports:
+      - "5432:5432"
+
+    # 数据持久化：
+    # 这会创建一个叫 "pgdata" 的 "volume"
+    # 这样即使你 'docker-compose down'，你的数据也不会丢失
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+# 在这里定义 "pgdata" volume
+volumes:
+  pgdata:
