@@ -1,7 +1,8 @@
 use std::env;
 use std::sync::Arc;
 
-use actix_web::{App, HttpServer, web};
+use actix_cors::Cors;
+use actix_web::{App, HttpServer, http, web};
 use dotenvy::dotenv;
 use sqlx::PgPool;
 
@@ -33,9 +34,29 @@ async fn main() -> std::io::Result<()> {
     println!("🚀 服务器启动于 http://127.0.0.1:8080");
 
     HttpServer::new(move || {
+        // 定义 CORS 策略
+        let _cors = Cors::default()
+            .allowed_origin("http://localhost:5173")
+            // 如果有其他环境，也添加它们
+            // .allowed_origin("https-your-production-frontend.com")
+            // 允许的 HTTP 方法
+            .allowed_methods(vec!["GET", "POST", "PUT", "DELETE"])
+            // 允许前端发送的头部
+            // 这对于 'Content-Type: application/json' 和 JWT 的 'Authorization'至关重要
+            .allowed_headers(vec![
+                http::header::AUTHORIZATION,
+                http::header::ACCEPT,
+                http::header::CONTENT_TYPE,
+            ])
+            // 允许浏览器发送 cookies 和 Authorization 头部
+            .supports_credentials()
+            // 缓存 "preflight" (OPTIONS) 请求的结果 1 小时
+            .max_age(3600);
+
         App::new()
+            .wrap(_cors)
             .app_data(web::Data::from(repo_data.clone()))
-            .configure(handlers::config)
+            .service(web::scope("/api").configure(handlers::config))
     })
     .bind(("127.0.0.1", 8080))?
     .run()
