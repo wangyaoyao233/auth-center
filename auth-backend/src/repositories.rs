@@ -10,7 +10,7 @@ use uuid::Uuid;
 // 它必须是 Send + Sync，因为 web::Data 会在多线程间共享它
 #[async_trait]
 pub trait UserRepository: Send + Sync {
-    async fn get_user_by_username(&self, username: &str) -> Result<User>;
+    async fn get_user_by_email(&self, email: &str) -> Result<User>;
     async fn get_user_by_id(&self, user_id: &Uuid) -> Result<User>;
     async fn create_user(&self, req: &RegisterRequest, password_hash: &str) -> Result<User>;
     async fn update_user_otp(
@@ -39,8 +39,8 @@ impl PostgresRepository {
 // 为 PostgresRepository 实现 UserRepository "契约"
 #[async_trait]
 impl UserRepository for PostgresRepository {
-    async fn get_user_by_username(&self, username: &str) -> Result<User> {
-        let user = sqlx::query_as!(User, "SELECT * FROM users WHERE username = $1", username)
+    async fn get_user_by_email(&self, email: &str) -> Result<User> {
+        let user = sqlx::query_as!(User, "SELECT * FROM users WHERE email = $1", email)
             .fetch_one(self.pool.as_ref()) // 从池中获取连接并执行
             .await?; // 从池中获取连接并执行
 

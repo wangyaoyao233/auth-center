@@ -4,7 +4,7 @@ use sqlx::types::uuid;
 
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
-    pub username: String,
+    pub email: String,
     pub password: String,
 }
 

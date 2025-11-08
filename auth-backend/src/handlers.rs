@@ -29,7 +29,7 @@ async fn login(
     repo: web::Data<dyn UserRepository>,
 ) -> impl Responder {
     // 调用 "契约" 中定义的方法
-    let user = match repo.get_user_by_username(&data.username).await {
+    let user = match repo.get_user_by_email(&data.email).await {
         Ok(user) => user,
         Err(_) => {
             return HttpResponse::Unauthorized().json("Invalid credentials");
@@ -49,7 +49,7 @@ async fn login(
 
     let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
     let claims = Claims {
-        sub: data.username.clone(),
+        sub: user.username.clone(),
         exp,
     };
 
