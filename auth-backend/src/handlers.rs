@@ -11,10 +11,9 @@ use uuid::Uuid;
 
 use crate::{
     models::{
-        Claims, DisableOTPSchema, GenerateOTPSchema, LoginRequest, LoginResponse, RegisterRequest,
-        VerifyOTPSchema,
+        ApiResponse, Claims, DisableOTPSchema, GenerateOTPSchema, LoginMfaData, LoginRequest,
+        RegisterRequest, VerifyOTPSchema,
     },
-    // 导入 抽象的 Trait，而不是 PgPool！
     repositories::UserRepository,
 };
 
@@ -25,26 +24,36 @@ fn get_jwt_secret() -> String {
 #[post("/auth/login")]
 async fn login(
     data: web::Json<LoginRequest>,
-    // 注入抽象的 Repository Trait
     repo: web::Data<dyn UserRepository>,
 ) -> impl Responder {
-    // 调用 "契约" 中定义的方法
     let user = match repo.get_user_by_email(&data.email).await {
         Ok(user) => user,
         Err(_) => {
-            return HttpResponse::Unauthorized().json("Invalid credentials");
+            return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Invalid credentials".to_string(),
+                data: None,
+            });
         }
     };
 
     let is_valid = match verify(&data.password, &user.password_hash) {
         Ok(valid) => valid,
         Err(_) => {
-            return HttpResponse::InternalServerError().json("Password verification failed");
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Password verification failed".to_string(),
+                data: None,
+            });
         }
     };
 
     if !is_valid {
-        return HttpResponse::Unauthorized().json("Invalid credentials");
+        return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "Invalid credentials".to_string(),
+            data: None,
+        });
     }
 
     let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
@@ -59,10 +68,20 @@ async fn login(
         &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
     ) {
         Ok(t) => t,
-        Err(_) => return HttpResponse::InternalServerError().json("Could not create token"),
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Could not create token".to_string(),
+                data: None,
+            });
+        }
     };
 
-    HttpResponse::Ok().json(LoginResponse { token })
+    HttpResponse::Ok().json(ApiResponse {
+        status: "success".to_string(),
+        message: "Login successful".to_string(),
+        data: Some(LoginMfaData { mfa_token: token }),
+    })
 }
 
 #[post("/auth/register")]
@@ -72,12 +91,26 @@ async fn register(
 ) -> impl Responder {
     let password_hash = match hash(&data.password, bcrypt::DEFAULT_COST) {
         Ok(h) => h,
-        Err(_) => return HttpResponse::InternalServerError().json("Could not hash password"),
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Could not hash password".to_string(),
+                data: None,
+            });
+        }
     };
 
     match repo.create_user(&data, &password_hash).await {
-        Ok(user) => HttpResponse::Ok().json(user),
-        Err(e) => HttpResponse::InternalServerError().json(e.to_string()),
+        Ok(user) => HttpResponse::Ok().json(ApiResponse {
+            status: "success".to_string(),
+            message: "User registered successfully".to_string(),
+            data: Some(user),
+        }),
+        Err(e) => HttpResponse::InternalServerError().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: e.to_string(),
+            data: None,
+        }),
     }
 }
 
@@ -93,11 +126,21 @@ async fn generate_otp(
 ) -> impl Responder {
     let user_id = match Uuid::from_str(&data.user_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user_id format"),
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Invalid user_id format".to_string(),
+                data: None,
+            });
+        }
     };
 
     if (repo.get_user_by_id(&user_id).await).is_err() {
-        return HttpResponse::NotFound().json("User not found");
+        return HttpResponse::NotFound().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "User not found".to_string(),
+            data: None,
+        });
     }
 
     let mut rng = rand::thread_rng();
@@ -123,11 +166,19 @@ async fn generate_otp(
         .update_user_otp(&user_id, &otp_base32, &otp_auth_url)
         .await
     {
-        Ok(_) => HttpResponse::Ok().json(json!({
-            "otp_base32": otp_base32,
-            "otp_auth_url": otp_auth_url
-        })),
-        Err(_) => HttpResponse::InternalServerError().json("Failed to update user OTP info"),
+        Ok(_) => HttpResponse::Ok().json(ApiResponse {
+            status: "success".to_string(),
+            message: "OTP generated successfully".to_string(),
+            data: Some(json!({
+                "otp_base32": otp_base32,
+                "otp_auth_url": otp_auth_url
+            })),
+        }),
+        Err(_) => HttpResponse::InternalServerError().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "Failed to update user OTP info".to_string(),
+            data: None,
+        }),
     }
 }
 
@@ -138,17 +189,35 @@ async fn verify_otp(
 ) -> impl Responder {
     let user_id = match Uuid::from_str(&data.user_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user_id format"),
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Invalid user_id format".to_string(),
+                data: None,
+            });
+        }
     };
 
     let user = match repo.get_user_by_id(&user_id).await {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json("User not found"),
+        Err(_) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "User not found".to_string(),
+                data: None,
+            });
+        }
     };
 
     let otp_base32 = match &user.otp_base32 {
         Some(base32) => base32.clone(),
-        None => return HttpResponse::BadRequest().json("OTP not set up for this user"),
+        None => {
+            return HttpResponse::BadRequest().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "OTP not set up for this user".to_string(),
+                data: None,
+            });
+        }
     };
 
     let totp = TOTP::new(
@@ -163,16 +232,25 @@ async fn verify_otp(
     let is_valid = totp.check_current(&data.token).unwrap();
 
     if is_valid {
-        match repo.verify_user_otp(&user_id).await {
-            Ok(_) => (),
-            Err(_) => {
-                return HttpResponse::InternalServerError().json("Failed to update OTP status");
-            }
+        if repo.verify_user_otp(&user_id).await.is_err() {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Failed to update OTP status".to_string(),
+                data: None,
+            });
         };
 
-        HttpResponse::Ok().json("OTP verified successfully")
+        HttpResponse::Ok().json(ApiResponse::<()> {
+            status: "success".to_string(),
+            message: "OTP verified successfully".to_string(),
+            data: None,
+        })
     } else {
-        HttpResponse::Unauthorized().json("Invalid OTP token")
+        HttpResponse::Unauthorized().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "Invalid OTP token".to_string(),
+            data: None,
+        })
     }
 }
 
@@ -183,16 +261,32 @@ async fn validate_otp(
 ) -> impl Responder {
     let user_id = match Uuid::from_str(&data.user_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user_id format"),
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Invalid user_id format".to_string(),
+                data: None,
+            });
+        }
     };
 
     let user = match repo.get_user_by_id(&user_id).await {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json("User not found"),
+        Err(_) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "User not found".to_string(),
+                data: None,
+            });
+        }
     };
 
     if !user.otp_enabled.unwrap_or(false) {
-        return HttpResponse::BadRequest().json("OTP is not enabled for this user");
+        return HttpResponse::BadRequest().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "OTP is not enabled for this user".to_string(),
+            data: None,
+        });
     }
 
     let otp_base32 = user.otp_base32.to_owned().unwrap();
@@ -209,10 +303,18 @@ async fn validate_otp(
     let is_valid = totp.check_current(&data.token).unwrap();
 
     if !is_valid {
-        return HttpResponse::Unauthorized().json("Invalid OTP token");
+        return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "Invalid OTP token".to_string(),
+            data: None,
+        });
     }
 
-    HttpResponse::Ok().json("OTP validated successfully")
+    HttpResponse::Ok().json(ApiResponse::<()> {
+        status: "success".to_string(),
+        message: "OTP validated successfully".to_string(),
+        data: None,
+    })
 }
 
 #[post("/auth/otp/disable")]
@@ -222,31 +324,55 @@ async fn disable_otp(
 ) -> impl Responder {
     let user_id = match Uuid::from_str(&data.user_id) {
         Ok(id) => id,
-        Err(_) => return HttpResponse::BadRequest().json("Invalid user_id format"),
+        Err(_) => {
+            return HttpResponse::BadRequest().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Invalid user_id format".to_string(),
+                data: None,
+            });
+        }
     };
 
     let user = match repo.get_user_by_id(&user_id).await {
         Ok(user) => user,
-        Err(_) => return HttpResponse::NotFound().json("User not found"),
+        Err(_) => {
+            return HttpResponse::NotFound().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "User not found".to_string(),
+                data: None,
+            });
+        }
     };
 
     if !user.otp_enabled.unwrap_or(false) {
-        return HttpResponse::BadRequest().json("OTP is already disabled for this user");
+        return HttpResponse::BadRequest().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "OTP is already disabled for this user".to_string(),
+            data: None,
+        });
     }
 
-    match repo
-        .update_user_otp(&user_id, "", "") // 清空 OTP 信息
-        .await
-    {
-        Ok(_) => (),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to disable OTP"),
+    if repo.update_user_otp(&user_id, "", "").await.is_err() {
+        return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "Failed to disable OTP".to_string(),
+            data: None,
+        });
     }
 
-    match repo.disable_user_otp(&user_id).await {
-        Ok(_) => (),
-        Err(_) => return HttpResponse::InternalServerError().json("Failed to disable OTP"),
+    if repo.disable_user_otp(&user_id).await.is_err() {
+        return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+            status: "error".to_string(),
+            message: "Failed to disable OTP".to_string(),
+            data: None,
+        });
     }
-    HttpResponse::Ok().json("OTP disabled successfully")
+
+    HttpResponse::Ok().json(ApiResponse::<()> {
+        status: "success".to_string(),
+        message: "OTP disabled successfully".to_string(),
+        data: None,
+    })
 }
 // --- 关键的 Actix-web 模式 ---
 // 这个函数会配置这个模块的所有路由
