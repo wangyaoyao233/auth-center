@@ -57,10 +57,14 @@ pub struct DisableOTPSchema {
     pub user_id: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: String,
     pub exp: usize,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aud: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub amr: Option<Vec<String>>,
 }
 
 #[derive(Debug, Serialize)]

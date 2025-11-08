@@ -45,14 +45,15 @@ content-type: application/json
 
 {
   "user_id": "84c4dee4-4ee0-4f42-8bab-8aca1c54b814",
-  "token": "142660"
+  "token": "143888"
 }
 
 ###
 POST http://127.0.0.1:8080/api/auth/otp/validate
+Authorization: Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI4NGM0ZGVlNC00ZWUwLTRmNDItOGJhYi04YWNhMWM1NGI4MTQiLCJleHAiOjE3NjI1OTczNTAsImF1ZCI6Im1mYS12ZXJpZmljYXRpb24iLCJhbXIiOlsicHdkIl19.Wm8xFfVB_dkxK-UcI_99y5x2IQsPGYMicThyozjBx0o123
 content-type: application/json
 
 {
   "user_id": "84c4dee4-4ee0-4f42-8bab-8aca1c54b814",
-  "token": "469065"
+  "token": "145989"
 }

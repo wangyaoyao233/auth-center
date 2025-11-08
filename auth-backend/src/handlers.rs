@@ -1,25 +1,22 @@
-use actix_web::{HttpResponse, Responder, get, post, web};
+use std::str::FromStr;
+
+use actix_web::{HttpRequest, HttpResponse, Responder, get, post, web};
 use bcrypt::{hash, verify};
-use chrono::{Duration, Utc};
-use jsonwebtoken::{EncodingKey, Header, encode};
 use rand::Rng;
 use serde_json::json;
-use std::env;
-use std::str::FromStr;
 use totp_rs::{Algorithm, Secret, TOTP};
 use uuid::Uuid;
 
 use crate::{
     models::{
-        ApiResponse, Claims, DisableOTPSchema, GenerateOTPSchema, LoginMfaData, LoginRequest,
-        RegisterRequest, VerifyOTPSchema,
+        ApiResponse, DisableOTPSchema, GenerateOTPSchema, LoginMfaData, LoginRequest,
+        OtpSueecessData, RegisterRequest, UserData, VerifyOTPSchema,
     },
     repositories::UserRepository,
+    utils::{
+        generate_access_token, generate_mfa_token, generate_refresh_token, validate_mfa_token,
+    },
 };
-
-fn get_jwt_secret() -> String {
-    env::var("JWT_SECRET").expect("JWT_SECRET must be set")
-}
 
 #[post("/auth/login")]
 async fn login(
@@ -56,22 +53,12 @@ async fn login(
         });
     }
 
-    let exp = (Utc::now() + Duration::hours(1)).timestamp() as usize;
-    let claims = Claims {
-        sub: user.username.clone(),
-        exp,
-    };
-
-    let token = match encode(
-        &Header::default(),
-        &claims,
-        &EncodingKey::from_secret(get_jwt_secret().as_bytes()),
-    ) {
+    let token = match generate_mfa_token(&user.id) {
         Ok(t) => t,
         Err(_) => {
             return HttpResponse::InternalServerError().json(ApiResponse::<()> {
                 status: "error".to_string(),
-                message: "Could not create token".to_string(),
+                message: "Could not generate MFA token".to_string(),
                 data: None,
             });
         }
@@ -256,15 +243,57 @@ async fn verify_otp(
 
 #[post("/auth/otp/validate")]
 async fn validate_otp(
+    req: HttpRequest,
     data: web::Json<VerifyOTPSchema>,
     repo: web::Data<dyn UserRepository>,
 ) -> impl Responder {
-    let user_id = match Uuid::from_str(&data.user_id) {
+    // validate mfa token first
+    let token = match req.headers().get("Authorization") {
+        Some(header_value) => {
+            if let Ok(value) = header_value.to_str() {
+                if value.starts_with("Bearer ") {
+                    value.strip_prefix("Bearer ").unwrap().to_string()
+                } else {
+                    return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+                        status: "error".to_string(),
+                        message: "Invalid token format".to_string(),
+                        data: None,
+                    });
+                }
+            } else {
+                return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+                    status: "error".to_string(),
+                    message: "Invalid token".to_string(),
+                    data: None,
+                });
+            }
+        }
+        None => {
+            return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Authorization header missing".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    let claims = match validate_mfa_token(&token) {
+        Ok(claims) => claims,
+        Err(_) => {
+            return HttpResponse::Unauthorized().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Invalid or expired MFA token".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    let user_id = match Uuid::from_str(&claims.sub) {
         Ok(id) => id,
         Err(_) => {
             return HttpResponse::BadRequest().json(ApiResponse::<()> {
                 status: "error".to_string(),
-                message: "Invalid user_id format".to_string(),
+                message: "Invalid user_id format in token".to_string(),
                 data: None,
             });
         }
@@ -310,10 +339,40 @@ async fn validate_otp(
         });
     }
 
-    HttpResponse::Ok().json(ApiResponse::<()> {
+    let access_token = match generate_access_token(&user.id) {
+        Ok(token) => token,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Failed to generate access token".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    let refresh_token = match generate_refresh_token(&user.id) {
+        Ok(token) => token,
+        Err(_) => {
+            return HttpResponse::InternalServerError().json(ApiResponse::<()> {
+                status: "error".to_string(),
+                message: "Failed to generate refresh token".to_string(),
+                data: None,
+            });
+        }
+    };
+
+    HttpResponse::Ok().json(ApiResponse {
         status: "success".to_string(),
         message: "OTP validated successfully".to_string(),
-        data: None,
+        data: Some(OtpSueecessData {
+            access_token,
+            refresh_token,
+            user: UserData {
+                id: user.id.to_string(),
+                email: user.email,
+                name: user.username,
+            },
+        }),
     })
 }
 
