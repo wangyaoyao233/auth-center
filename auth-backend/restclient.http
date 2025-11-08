@@ -1,13 +1,9 @@
-http://127.0.0.1:8080/hello
-
-###
-
-GET http://127.0.0.1:8080/hash
+http://127.0.0.1:8080/api/hello
 
 
 ###
 
-POST http://127.0.0.1:8080/login
+POST http://127.0.0.1:8080/api/auth/login
 content-type: application/json
 
 {
@@ -15,3 +11,48 @@ content-type: application/json
   "password": "password123"
 }
 
+
+###
+
+POST http://127.0.0.1:8080/api/auth/register
+content-type: application/json
+
+{
+  "email": "test@email.com",
+  "username": "testuser",
+  "password": "password123"
+}
+
+###
+
+POST http://127.0.0.1:8080/api/auth/otp/generate
+content-type: application/json
+
+{
+  "user_id": "84c4dee4-4ee0-4f42-8bab-8aca1c54b814",
+  "email": "test@email.com"
+}
+
+# {
+#   "otp_auth_url": "otpauth://totp/AuthApp:test@email.com?secret=T233UFCWW6GKEQCOYKLHX45FRVVKQDJBQ4&issuer=AuthApp",
+#   "otp_base32": "T233UFCWW6GKEQCOYKLHX45FRVVKQDJBQ4"
+# }
+
+###
+
+POST http://127.0.0.1:8080/api/auth/otp/verify
+content-type: application/json
+
+{
+  "user_id": "84c4dee4-4ee0-4f42-8bab-8aca1c54b814",
+  "token": "142660"
+}
+
+###
+POST http://127.0.0.1:8080/api/auth/otp/validate
+content-type: application/json
+
+{
+  "user_id": "84c4dee4-4ee0-4f42-8bab-8aca1c54b814",
+  "token": "469065"
+}
